@@ -1,8 +1,12 @@
 from youtube_transcript_api import YouTubeTranscriptApi
 import yt_dlp
 import re
+import os
 from dotenv import load_dotenv
+from googleapiclient.discovery import build
+from tenacity import retry, stop_after_attempt, wait_exponential
 
+# Load environment variables
 load_dotenv()
 
 def extract_video_id(url):
@@ -20,6 +24,32 @@ def extract_video_id(url):
             return match.group(1)
     raise ValueError("Invalid YouTube URL")
 
+def get_youtube_api_client():
+    """Initialize YouTube API client."""
+    api_key = os.getenv('YOUTUBE_API_KEY')
+    if not api_key:
+        return None
+    return build('youtube', 'v3', developerKey=api_key)
+
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
+def get_video_info_from_api(video_id):
+    """Get video info using YouTube API."""
+    youtube = get_youtube_api_client()
+    if not youtube:
+        return None
+
+    try:
+        request = youtube.videos().list(
+            part="snippet,contentDetails,statistics",
+            id=video_id
+        )
+        response = request.execute()
+        if response['items']:
+            return response['items'][0]
+        return None
+    except Exception:
+        return None
+
 def get_video_info(url):
     """Get video title and other metadata using yt-dlp."""
     try:
@@ -30,18 +60,37 @@ def get_video_info(url):
             'no_warnings': True,
             'extract_flat': True,
             'format': 'best',
-            'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'headers': {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                'Accept-Language': 'en-us,en;q=0.5',
-                'Sec-Fetch-Mode': 'navigate'
-            }
+            'nocheckcertificate': True
         }
-        
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+
+        # First try YouTube API
+        api_info = get_video_info_from_api(video_id)
+        if api_info:
+            snippet = api_info['snippet']
+            content_details = api_info['contentDetails']
+            # Convert ISO 8601 duration to seconds
+            duration_str = content_details['duration'].replace('PT', '').lower()
+            duration = 0
+            for part in re.findall(r'(\d+[hms])', duration_str):
+                value = int(part[:-1])
+                if 'h' in part:
+                    duration += value * 3600
+                elif 'm' in part:
+                    duration += value * 60
+                else:
+                    duration += value
+
+            return {
+                'title': snippet['title'],
+                'author': snippet['channelTitle'],
+                'length': duration,
+                'thumbnail_url': snippet['thumbnails']['high']['url']
+            }
+        # Fallback to yt-dlp if API fails
+        else:
             try:
-                info = ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
                 return {
                     'title': info.get('title', 'Unknown Title'),
                     'author': info.get('uploader', 'Unknown Author'),
@@ -49,13 +98,7 @@ def get_video_info(url):
                     'thumbnail_url': info.get('thumbnail', '')
                 }
             except Exception as e:
-                # If yt-dlp fails, try using just the video ID for basic info
-                return {
-                    'title': f'Video {video_id}',
-                    'author': 'Unknown Author',
-                    'length': 0,
-                    'thumbnail_url': f'https://i.ytimg.com/vi/{video_id}/hqdefault.jpg'
-                }
+                raise ValueError(f"Error fetching video info: {str(e)}")
     except Exception as e:
         raise ValueError(f"Error fetching video info: {str(e)}")
 
@@ -64,23 +107,27 @@ def get_youtube_transcript(video_id):
     try:
         # Get list of available transcripts
         transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+        transcript = None
         
+        # Try different methods to get transcript
         try:
             # Try to get English transcript first
             transcript = transcript_list.find_transcript(['en'])
         except:
-            # If English not available, get auto-generated transcript
             try:
+                # Try auto-generated English transcript
                 transcript = transcript_list.find_generated_transcript(['en'])
             except:
-                # If no English, get the first available transcript
                 try:
+                    # Try any manually created transcript
                     transcript = transcript_list.find_manually_created_transcript()
                 except:
-                    return None
+                    try:
+                        # Try any auto-generated transcript
+                        transcript = transcript_list.find_generated_transcript()
+                    except:
+                        return None
 
-        # Fetch the transcript
-        transcript_data = transcript.fetch()
-        return ' '.join([entry['text'] for entry in transcript_data])
-    except Exception:
+        return ' '.join([entry['text'] for entry in transcript.fetch()]) if transcript else None
+    except Exception as e:
         return None  # Return None if transcript is not available

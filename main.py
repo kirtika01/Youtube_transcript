@@ -69,8 +69,7 @@ def main():
             col1, col2 = st.columns([1, 2])
             with col1:
                 if video_info['thumbnail_url']:
-                    st.image(video_info['thumbnail_url'], width=None)
-  # Using width=None for full column width
+                    st.image(video_info['thumbnail_url'], width=None)  # Using width=None for full column width
             with col2:
                 st.subheader(video_info['title'])
                 st.write(f"Author: {video_info['author']}")
@@ -91,30 +90,33 @@ def main():
                     else:
                         # If no captions available, use Whisper
                         st.info("No YouTube captions available. Using AI model for transcription (this may take a few minutes)...")
-                        with st.spinner("Generating transcript using AI..."):
-                            progress_text = "Processing video..."
-                            progress_bar = st.progress(0)
+                        
+                        steps = ["Downloading video", "Loading AI model", "Transcribing audio"]
+                        current_step = 0
+                        progress_bar = st.progress(0)
+                        status_text = st.empty()
+                        
+                        try:
+                            status_text.write(f"Step {current_step + 1}/3: {steps[current_step]}")
+                            progress_bar.progress(33)
                             
-                            try:
-                                # Process with Whisper
-                                transcript = transcription_service.process_video(youtube_url)
+                            # This will handle downloading and transcription
+                            transcript = transcription_service.process_video(youtube_url)
+                            
+                            if transcript and transcript.strip():
                                 progress_bar.progress(100)
-                                progress_bar.empty()
-                                
-                                if transcript and transcript.strip():
-                                    st.success("Successfully generated transcript using AI!")
-                                    st.session_state['transcript'] = transcript
-                                else:
-                                    st.error("Failed to generate transcript: No text was produced")
-                                    return
-                            except Exception as e:
-                                progress_bar.empty()
-                                st.error(f"Error during AI transcription: {str(e)}")
-                                return
+                                st.success("Successfully generated transcript using AI!")
+                                st.session_state['transcript'] = transcript
+                            else:
+                                st.error("Failed to generate transcript: No text was produced")
+                        except Exception as e:
+                            st.error(f"Error during AI transcription: {str(e)}")
+                        finally:
+                            progress_bar.empty()
+                            status_text.empty()
                             
                 except Exception as e:
                     st.error(f"Error processing video: {str(e)}")
-                    return
             
             # Translation options
             if 'transcript' in st.session_state and st.session_state['transcript']:
