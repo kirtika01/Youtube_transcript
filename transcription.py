@@ -3,7 +3,6 @@ import tempfile
 import yt_dlp
 import os
 import time
-import warnings
 
 class TranscriptionService:
     def __init__(self):
@@ -12,10 +11,7 @@ class TranscriptionService:
     def load_model(self, model_size="base"):
         """Load the Whisper model."""
         if self.model is None:
-            # Suppress warnings about FP16
-            with warnings.catch_warnings():
-                warnings.filterwarnings("ignore", message="FP16 is not supported on CPU")
-                self.model = whisper.load_model(model_size, device="cpu", in_memory=True)
+            self.model = whisper.load_model(model_size, device="cpu", in_memory=True)
         return self.model
 
     def download_audio(self, url):
@@ -34,7 +30,25 @@ class TranscriptionService:
                 }],
                 'outtmpl': temp_file[:-4],  # Remove .mp3 as yt-dlp will add it
                 'quiet': True,
-                'no_warnings': True
+                'no_warnings': True,
+                'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'headers': {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                    'Accept-Language': 'en-us,en;q=0.5',
+                    'Sec-Fetch-Mode': 'navigate'
+                },
+                'nocheckcertificate': True,
+                'ignoreerrors': False,
+                'logtostderr': False,
+                'geo_bypass': True,
+                'extractor_args': {
+                    'youtube': {
+                        'skip_download': False,
+                        'writesubtitles': False,
+                        'writeautomaticsub': False
+                    }
+                }
             }
             
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -71,15 +85,7 @@ class TranscriptionService:
                 raise ValueError("Audio file is empty")
             
             model = self.load_model()
-            
-            # Suppress warnings during transcription
-            with warnings.catch_warnings():
-                warnings.filterwarnings("ignore", category=UserWarning)
-                result = model.transcribe(
-                    audio_path,
-                    fp16=False,  # Force FP32 on CPU
-                    language='en'  # Specify language for better accuracy
-                )
+            result = model.transcribe(audio_path)
             
             # Clean up temporary file
             try:
