@@ -2,6 +2,7 @@ import whisper
 import tempfile
 import yt_dlp
 import os
+import random
 import time
 
 class TranscriptionService:
@@ -14,11 +15,36 @@ class TranscriptionService:
             self.model = whisper.load_model(model_size, device="cpu", in_memory=True)
         return self.model
 
+    def _download_with_retry(self, url, ydl_opts, max_retries=3, initial_delay=1):
+        """Attempt download with exponential backoff retry."""
+        last_exception = None
+        delay = initial_delay
+
+        for attempt in range(max_retries):
+            try:
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    ydl.download([url])
+                return True
+            except Exception as e:
+                last_exception = e
+                if "HTTP Error 403" in str(e):
+                    # Add jitter to delay
+                    jitter = random.uniform(0, 0.1) * delay
+                    time.sleep(delay + jitter)
+                    delay *= 2  # Exponential backoff
+                    continue
+                else:
+                    raise e  # Re-raise if it's not a 403 error
+
+        if last_exception:
+            raise last_exception
+
     def download_audio(self, url):
         """Download audio from YouTube video using yt-dlp."""
         try:
             temp_dir = tempfile.gettempdir()
             timestamp = int(time.time())
+            time.sleep(random.uniform(0.1, 0.5))  # Add small random delay before request
             temp_file = os.path.join(temp_dir, f"audio_{timestamp}.mp3")
             
             ydl_opts = {
@@ -50,9 +76,8 @@ class TranscriptionService:
                     }
                 }
             }
-            
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([url])
+
+            self._download_with_retry(url, ydl_opts)
                 
             # Verify the file exists
             final_path = temp_file
