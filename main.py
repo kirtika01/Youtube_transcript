@@ -69,7 +69,8 @@ def main():
             col1, col2 = st.columns([1, 2])
             with col1:
                 if video_info['thumbnail_url']:
-                    st.image(video_info['thumbnail_url'], use_container_width=True)
+                    st.image(video_info['thumbnail_url'], width=None)
+  # Using width=None for full column width
             with col2:
                 st.subheader(video_info['title'])
                 st.write(f"Author: {video_info['author']}")
