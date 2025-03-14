@@ -8,6 +8,7 @@ import gc
 import torch
 from urllib.parse import urlparse
 
+
 class TranscriptionService:
     def __init__(self):
         self.model = None
@@ -21,17 +22,17 @@ class TranscriptionService:
             # Clear CUDA cache if using GPU
             if self.device == "cuda":
                 torch.cuda.empty_cache()
-            
+
             # Clear memory
             gc.collect()
-            
+
             # Load model
             self.model = whisper.load_model(self.model_size, device=self.device)
             self._model_loaded = True
-            
+
             # Another memory cleanup after loading
             gc.collect()
-        
+
         return self.model
 
     def download_audio(self, url):
@@ -43,15 +44,20 @@ class TranscriptionService:
             temp_file = os.path.join(temp_dir, f"audio_{timestamp}.mp3")
 
             ydl_opts = {
-                'format': 'bestaudio/best',
-                'postprocessors': [{
-                    'key': 'FFmpegExtractAudio',
-                    'preferredcodec': 'mp3',
-                    'preferredquality': '128',  # Lower quality for faster processing
-                }],
-                'outtmpl': temp_file[:-4],
-                'quiet': True,
-                'no_warnings': True
+                "format": "bestaudio/best",
+                "postprocessors": [
+                    {
+                        "key": "FFmpegExtractAudio",
+                        "preferredcodec": "mp3",
+                        "preferredquality": "128",
+                    }
+                ],
+                "outtmpl": temp_file[:-4],
+                "quiet": True,
+                "no_warnings": True,
+                "http_headers": {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+                },
             }
 
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -75,32 +81,32 @@ class TranscriptionService:
         try:
             if not os.path.exists(audio_path):
                 raise FileNotFoundError(f"Audio file not found at {audio_path}")
-            
+
             if os.path.getsize(audio_path) == 0:
                 raise ValueError("Audio file is empty")
 
             # Load model
             model = self.load_model()
-            
+
             # Transcribe with optimized settings
             result = model.transcribe(
                 audio_path,
                 fp16=False,  # Disable half-precision for better compatibility
-                language='en',  # Specify English for faster processing
-                task='transcribe'  # Specific task for optimization
+                language="en",  # Specify English for faster processing
+                task="transcribe",  # Specific task for optimization
             )
-            
+
             # Clean up
             try:
                 os.remove(audio_path)
             except Exception:
                 pass  # Ignore cleanup errors
-            
+
             # Memory cleanup
             gc.collect()
             if self.device == "cuda":
                 torch.cuda.empty_cache()
-            
+
             return result["text"]
         except Exception as e:
             try:
@@ -117,7 +123,7 @@ class TranscriptionService:
             audio_path = self.download_audio(url)
             if not audio_path:
                 raise ValueError("Failed to download audio")
-                
+
             transcript = self.transcribe_audio(audio_path)
             return transcript
         except Exception as e:
