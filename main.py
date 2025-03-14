@@ -45,7 +45,7 @@ def main():
         3. Handle videos with or without captions
         """)
         st.divider()
-        st.write("Note: The app will first try to use YouTube captions. If none are available, it will use AI transcription.")
+        st.write("Note: The app will first try to use YouTube captions for instant results. If none are available, it will use AI transcription.")
     
     # Main content
     youtube_url = st.text_input(
@@ -69,7 +69,7 @@ def main():
             col1, col2 = st.columns([1, 2])
             with col1:
                 if video_info['thumbnail_url']:
-                    st.image(video_info['thumbnail_url'], width=None)  # Using width=None for full column width
+                    st.image(video_info['thumbnail_url'], width=None)
             with col2:
                 st.subheader(video_info['title'])
                 st.write(f"Author: {video_info['author']}")
@@ -79,45 +79,46 @@ def main():
             
             # Process button
             if st.button("Generate Transcript"):
-                try:
-                    # First try YouTube captions
-                    with st.spinner("Fetching YouTube captions..."):
-                        transcript = get_youtube_transcript(video_id)
-                        
-                    if transcript:
-                        st.success("Successfully retrieved YouTube captions!")
-                        st.session_state['transcript'] = transcript
-                    else:
-                        # If no captions available, use Whisper
-                        st.info("No YouTube captions available. Using AI model for transcription (this may take a few minutes)...")
-                        
-                        steps = ["Downloading video", "Loading AI model", "Transcribing audio"]
-                        current_step = 0
+                transcript = None
+                
+                # First try YouTube captions
+                with st.spinner("Fetching YouTube captions..."):
+                    transcript = get_youtube_transcript(video_id)
+                
+                if transcript:
+                    st.success("✅ Successfully retrieved YouTube captions!")
+                    st.session_state['transcript'] = transcript
+                else:
+                    # If no captions available, use Whisper
+                    st.warning("⚠️ No YouTube captions available. Using AI transcription (this may take several minutes)...")
+                    
+                    try:
                         progress_bar = st.progress(0)
                         status_text = st.empty()
                         
-                        try:
-                            status_text.write(f"Step {current_step + 1}/3: {steps[current_step]}")
-                            progress_bar.progress(33)
+                        # Update status for download
+                        status_text.write("⬇️ Downloading video audio...")
+                        progress_bar.progress(25)
+                        
+                        # Process with Whisper
+                        transcript = transcription_service.process_video(youtube_url)
+                        
+                        if transcript and transcript.strip():
+                            progress_bar.progress(100)
+                            st.success("✅ Successfully generated transcript using AI!")
+                            st.session_state['transcript'] = transcript
+                        else:
+                            st.error("❌ Failed to generate transcript: No text was produced")
+                            return
                             
-                            # This will handle downloading and transcription
-                            transcript = transcription_service.process_video(youtube_url)
-                            
-                            if transcript and transcript.strip():
-                                progress_bar.progress(100)
-                                st.success("Successfully generated transcript using AI!")
-                                st.session_state['transcript'] = transcript
-                            else:
-                                st.error("Failed to generate transcript: No text was produced")
-                        except Exception as e:
-                            st.error(f"Error during AI transcription: {str(e)}")
-                        finally:
-                            progress_bar.empty()
-                            status_text.empty()
-                            
-                except Exception as e:
-                    st.error(f"Error processing video: {str(e)}")
-            
+                        # Clean up progress indicators
+                        progress_bar.empty()
+                        status_text.empty()
+                        
+                    except Exception as e:
+                        st.error(f"❌ Error during AI transcription: {str(e)}")
+                        return
+                        
             # Translation options
             if 'transcript' in st.session_state and st.session_state['transcript']:
                 st.subheader("Original Transcript")

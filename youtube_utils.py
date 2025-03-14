@@ -51,18 +51,10 @@ def get_video_info_from_api(video_id):
         return None
 
 def get_video_info(url):
-    """Get video title and other metadata using yt-dlp."""
+    """Get video title and other metadata using YouTube API or yt-dlp."""
     try:
         video_id = extract_video_id(url)
-        # First try to get just the metadata without downloading
-        ydl_opts = {
-            'quiet': True,
-            'no_warnings': True,
-            'extract_flat': True,
-            'format': 'best',
-            'nocheckcertificate': True
-        }
-
+        
         # First try YouTube API
         api_info = get_video_info_from_api(video_id)
         if api_info:
@@ -86,48 +78,64 @@ def get_video_info(url):
                 'length': duration,
                 'thumbnail_url': snippet['thumbnails']['high']['url']
             }
+        
         # Fallback to yt-dlp if API fails
-        else:
-            try:
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    info = ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
-                return {
-                    'title': info.get('title', 'Unknown Title'),
-                    'author': info.get('uploader', 'Unknown Author'),
-                    'length': info.get('duration', 0),
-                    'thumbnail_url': info.get('thumbnail', '')
-                }
-            except Exception as e:
-                raise ValueError(f"Error fetching video info: {str(e)}")
+        ydl_opts = {
+            'quiet': True,
+            'no_warnings': True,
+            'extract_flat': True,
+            'format': 'best',
+            'nocheckcertificate': True
+        }
+        
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
+            return {
+                'title': info.get('title', 'Unknown Title'),
+                'author': info.get('uploader', 'Unknown Author'),
+                'length': info.get('duration', 0),
+                'thumbnail_url': info.get('thumbnail', '')
+            }
     except Exception as e:
         raise ValueError(f"Error fetching video info: {str(e)}")
 
 def get_youtube_transcript(video_id):
-    """Get transcript from YouTube video if available."""
+    """Get transcript from YouTube using the transcript API."""
     try:
-        # Get list of available transcripts
+        # First try to get available transcripts
         transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
-        transcript = None
         
-        # Try different methods to get transcript
+        # Try to get manual English transcript first
         try:
-            # Try to get English transcript first
-            transcript = transcript_list.find_transcript(['en'])
+            transcript = transcript_list.find_manually_created_transcript(['en'])
         except:
             try:
                 # Try auto-generated English transcript
-                transcript = transcript_list.find_generated_transcript(['en'])
+                transcript = transcript_list.find_transcript(['en'])
             except:
                 try:
-                    # Try any manually created transcript
+                    # Try any manual transcript
                     transcript = transcript_list.find_manually_created_transcript()
                 except:
                     try:
                         # Try any auto-generated transcript
-                        transcript = transcript_list.find_generated_transcript()
+                        transcript = transcript_list.find_generated_transcript(['en'])
                     except:
-                        return None
+                        return None  # No transcript available
 
-        return ' '.join([entry['text'] for entry in transcript.fetch()]) if transcript else None
-    except Exception as e:
-        return None  # Return None if transcript is not available
+        # Get the transcript text
+        transcript_data = transcript.fetch()
+        
+        # Combine all text parts with proper timing
+        transcript_text = []
+        for entry in transcript_data:
+            # Add a period if the segment doesn't end with punctuation
+            text = entry['text'].strip()
+            if text and not text[-1] in '.!?':
+                text += '.'
+            transcript_text.append(text)
+        
+        return ' '.join(transcript_text)
+        
+    except Exception:
+        return None  # Return None if any error occurs
